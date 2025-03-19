@@ -1,5 +1,7 @@
 import tkinter as tk
 import random
+import os
+import json
 
 # 颜色配置
 GRID_COLOR = "#a39489"
@@ -10,6 +12,9 @@ GAME_OVER_FONT = ("Helvetica", 48, "bold")
 GAME_OVER_FONT_COLOR = "#ffffff"
 WINNER_BG = "#ffcc00"
 LOSER_BG = "#a39489"
+BUTTON_FONT = ("Verdana", 12)
+BUTTON_BG = "#8f7a66"
+BUTTON_FG = "#ffffff"
 
 CELL_COLORS = {
     2: "#fcefe6",
@@ -56,8 +61,16 @@ CELL_NUMBER_FONTS = {
 class Game(tk.Frame):
     def __init__(self, master):
         tk.Frame.__init__(self, master)
+        # 创建数据目录
+        self.data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+        if not os.path.exists(self.data_dir):
+            os.makedirs(self.data_dir)
+            
         self.grid()
         self.master.title('2048')
+        
+        # 加载最高分
+        self.high_score = self.load_high_score()
         
         self.main_grid = tk.Frame(
             self, bg=GRID_COLOR, bd=3, width=400, height=400)
@@ -69,11 +82,55 @@ class Game(tk.Frame):
         self.master.bind("<Right>", self.right)
         self.master.bind("<Up>", self.up)
         self.master.bind("<Down>", self.down)
+        self.master.bind("r", self.reset_game)  # 添加键盘快捷键R重置游戏
+        self.master.bind("q", self.quit_game)   # 添加键盘快捷键Q退出游戏
         
         self.mainloop()
     
     def make_GUI(self):
-        # 创建分数标签
+        # 左侧重新开始按钮
+        restart_button = tk.Button(
+            self,
+            text="restart",
+            font=BUTTON_FONT,
+            bg=BUTTON_BG,
+            fg="#000000",  # 改为黑色文字
+            command=self.reset_game
+        )
+        restart_button.place(relx=0.15, y=40, anchor="center")
+        
+        # 右侧退出按钮
+        quit_button = tk.Button(
+            self,
+            text="quit",
+            font=BUTTON_FONT,
+            bg=BUTTON_BG,
+            fg="#000000",  # 改为黑色文字
+            command=self.quit_game
+        )
+        quit_button.place(relx=0.85, y=40, anchor="center")
+        
+        # 创建分数头部
+        score_frame = tk.Frame(self)
+        score_frame.place(relx=0.5, y=40, anchor="center")
+        
+        # 当前分数
+        tk.Label(
+            score_frame,
+            text="Score",
+            font=SCORE_LABEL_FONT).grid(row=0, column=0, padx=20)
+        self.score_label = tk.Label(score_frame, text="0", font=SCORE_FONT)
+        self.score_label.grid(row=1, column=0)
+        
+        # 最高分
+        tk.Label(
+            score_frame,
+            text="Best",
+            font=SCORE_LABEL_FONT).grid(row=0, column=1, padx=20)
+        self.high_score_label = tk.Label(score_frame, text=str(self.high_score), font=SCORE_FONT)
+        self.high_score_label.grid(row=1, column=1)
+        
+        # 创建游戏网格
         self.cells = []
         for i in range(4):
             row = []
@@ -89,16 +146,6 @@ class Game(tk.Frame):
                 cell_data = {"frame": cell_frame, "number": cell_number}
                 row.append(cell_data)
             self.cells.append(row)
-        
-        # 创建分数头部
-        score_frame = tk.Frame(self)
-        score_frame.place(relx=0.5, y=40, anchor="center")
-        tk.Label(
-            score_frame,
-            text="Score",
-            font=SCORE_LABEL_FONT).grid(row=0)
-        self.score_label = tk.Label(score_frame, text="0", font=SCORE_FONT)
-        self.score_label.grid(row=1)
     
     def start_game(self):
         # 创建矩阵
@@ -142,6 +189,13 @@ class Game(tk.Frame):
                         text=str(cell_value))
         
         self.score_label.configure(text=str(self.score))
+        
+        # 更新最高分
+        if self.score > self.high_score:
+            self.high_score = self.score
+            self.high_score_label.configure(text=str(self.high_score))
+            self.save_high_score()
+            
         self.update_idletasks()
     
     # 移动逻辑
@@ -244,12 +298,61 @@ class Game(tk.Frame):
         # 游戏结束
         game_over_frame = tk.Frame(self.main_grid, borderwidth=2)
         game_over_frame.place(relx=0.5, rely=0.5, anchor="center")
+        
+        # 游戏结束标签
         tk.Label(
             game_over_frame,
             text="Game Over!",
             bg=LOSER_BG,
             fg=GAME_OVER_FONT_COLOR,
-            font=GAME_OVER_FONT).pack()
+            font=GAME_OVER_FONT).pack(pady=10)
+        
+        # 添加重新开始按钮到游戏结束框
+        restart_button = tk.Button(
+            game_over_frame,
+            text="restart",
+            font=BUTTON_FONT,
+            bg=BUTTON_BG,
+            fg=BUTTON_FG,
+            command=self.reset_game
+        )
+        restart_button.pack(pady=10)
+        
+        return True
+    
+    # 新增方法：重置游戏
+    def reset_game(self, event=None):
+        # 清除可能存在的游戏结束框
+        for widget in self.main_grid.winfo_children():
+            if isinstance(widget, tk.Frame) and widget not in [cell["frame"] for row in self.cells for cell in row]:
+                widget.destroy()
+        
+        self.start_game()
+    
+    # 新增方法：退出游戏
+    def quit_game(self, event=None):
+        self.master.destroy()
+    
+    # 新增方法：加载最高分
+    def load_high_score(self):
+        score_file = os.path.join(self.data_dir, "high_score.json")
+        try:
+            if os.path.exists(score_file):
+                with open(score_file, "r") as f:
+                    data = json.load(f)
+                    return data.get("high_score", 0)
+        except Exception as e:
+            print(f"加载最高分时出错: {e}")
+        return 0
+    
+    # 新增方法：保存最高分
+    def save_high_score(self):
+        score_file = os.path.join(self.data_dir, "high_score.json")
+        try:
+            with open(score_file, "w") as f:
+                json.dump({"high_score": self.high_score}, f)
+        except Exception as e:
+            print(f"保存最高分时出错: {e}")
 
 def main():
     # 启动游戏
